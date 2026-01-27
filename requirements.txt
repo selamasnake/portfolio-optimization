@@ -8,3 +8,4 @@ pmdarima
 scikit-learn
 scipy
 jupyter
+statsmodels
