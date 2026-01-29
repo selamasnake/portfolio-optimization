@@ -11,3 +11,4 @@ jupyter
 statsmodels
 pmdarima
 tensorflow
+pyportfolioopt
