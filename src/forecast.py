@@ -8,6 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Input
 from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import MinMaxScaler
 
 class Forecast:
 
@@ -68,14 +69,13 @@ class Forecast:
 
         return model_fit, forecast
 
-    # -----------------------
-    # LSTM Forecast
-    # -----------------------
+
     @staticmethod
-    def lstm_forecast(train, test, window_size=60, epochs=50, batch_size=32, neurons=50):
+    def lstm_forecast(train, test, window_size=60, epochs=50, batch_size=32, neurons=50, return_model=False):
         """
         Build and train an LSTM to predict next-day prices.
         Returns forecast DataFrame indexed like test.
+        Optionally returns the trained model and scaler for future forecasting.
         """
         # Scale data
         scaler = MinMaxScaler(feature_range=(0, 1))
@@ -110,8 +110,13 @@ class Forecast:
         # Predict
         predictions = model.predict(X_test)
         predictions = scaler.inverse_transform(predictions)
-        forecast = pd.DataFrame(predictions, index=test.index, columns=["Forecast"])
-        return forecast
+        forecast_df = pd.DataFrame(predictions, index=test.index, columns=["Forecast"])
+        
+        if return_model:
+            return forecast_df, model, scaler
+        else:
+            return forecast_df
+
 
     @staticmethod
     def create_sequences(data, window_size):
@@ -127,9 +132,9 @@ class Forecast:
         X = X.reshape((X.shape[0], X.shape[1], 1))
         return X, y
 
-    # -----------------------
+
     # Evaluation Metrics
-    # -----------------------
+
     @staticmethod
     def evaluate_models(test, *forecasts):
         """
@@ -150,3 +155,36 @@ class Forecast:
             results.append([f"Model {i+1}", mae, rmse, mape])
             
         return pd.DataFrame(results, columns=["Model", "MAE", "RMSE", "MAPE"])
+
+    # LSTM Multi-step Forecast
+    
+    @staticmethod
+    def lstm_future_forecast(model, train, window_size=60, steps=126, neurons=50):
+        """
+        Generate multi-step forecast using a trained LSTM model.
+        - model: trained Keras LSTM model
+        - train: historical series (pd.DataFrame) used for scaling
+        - window_size: look-back size for predictions
+        - steps: number of future steps to forecast (default ~6 months of business days)
+        """
+
+        scaler = MinMaxScaler(feature_range=(0,1))
+        scaled_train = scaler.fit_transform(train)
+
+        # last known window
+        last_window = scaled_train[-window_size:].flatten()
+        future_preds = []
+
+        for _ in range(steps):
+            x_input = last_window.reshape((1, window_size, 1))
+            pred = model.predict(x_input, verbose=0)
+            future_preds.append(pred[0, 0])
+            last_window = np.append(last_window[1:], pred[0, 0])
+
+        future_preds = np.array(future_preds).reshape(-1, 1)
+        future_preds = scaler.inverse_transform(future_preds).flatten()
+        return future_preds
+    
+    @staticmethod
+    def generate_future_index(last_date, steps, freq='B'):
+        return pd.date_range(start=last_date + pd.Timedelta(days=1), periods=steps, freq=freq)
