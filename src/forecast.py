@@ -15,36 +15,34 @@ class Forecast:
     def prepare_data(df, column="Adj Close", train_end="2024-12-31"):
         """
         Split time series into train and test sets chronologically.
-        Ensures datetime index with business day frequency.
+        Assumes input data is already cleaned and frequency-aligned.
         """
         df = df.copy()
         df = df[[column]]
 
         # Ensure datetime index
         if not isinstance(df.index, pd.DatetimeIndex):
-            df = df.reset_index().rename(columns={df.columns[0]: "Date"}).set_index("Date")
-        df.index = pd.to_datetime(df.index)
+            df.index = pd.to_datetime(df.index)
 
-        # Set business day frequency and fill missing values
-        df = df.asfreq('B').ffill()
-
-        # Split chronologically
+        # Chronological split
         train = df[df.index <= train_end]
         test  = df[df.index >  train_end]
+
         return train, test
 
-    # -----------------------
-    # ARIMA/SARIMA Forecast
-    # -----------------------
+
     @staticmethod
     def arima_forecast(train, test, seasonal=False, m=1):
         """
-        Fit ARIMA/SARIMA using auto_arima to determine optimal parameters.
-        Returns fitted ARIMA model and forecast DataFrame indexed like test.
+        Fit ARIMA/SARIMA using auto_arima.
+        Returns fitted model and forecast DataFrame.
         """
-        # Auto ARIMA to find best params
+
+        # Convert DataFrame → Series
+        y_train = train.iloc[:, 0]
+
         stepwise_model = auto_arima(
-            train,
+            y_train,
             seasonal=seasonal,
             m=m,
             trace=False,
@@ -52,20 +50,22 @@ class Forecast:
             suppress_warnings=True
         )
 
-        # Extract seasonal_order if exists, otherwise default
-        seasonal_order = getattr(stepwise_model, 'seasonal_order', (0,0,0,0))
-        
-        # Fit ARIMA
         model = ARIMA(
-            train,
+            y_train,
             order=stepwise_model.order,
-            seasonal_order=seasonal_order
+            seasonal_order=getattr(stepwise_model, "seasonal_order", (0,0,0,0))
         )
+
         model_fit = model.fit()
-        
-        # Forecast
-        forecast_values = model_fit.forecast(len(test))
-        forecast = pd.DataFrame(forecast_values, index=test.index, columns=["Forecast"])
+
+        forecast_values = model_fit.forecast(steps=len(test))
+
+        forecast = pd.DataFrame(
+            forecast_values.values,
+            index=test.index,
+            columns=["Forecast"]
+        )
+
         return model_fit, forecast
 
     # -----------------------
